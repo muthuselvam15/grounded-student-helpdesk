@@ -17,7 +17,7 @@ EMBED_MODEL = "gemini-embedding-001"
 GEN_MODEL = "gemini-3.8-flash"
 
 # Fallback generation model
-FALLBACK_MODEL = "gemini-2.5-flash"
+FALLBACK_MODEL = "gemini-3.6-flash"
 
 # Minimum similarity required to consider a policy relevant
 MIN_SCORE = 0.40
