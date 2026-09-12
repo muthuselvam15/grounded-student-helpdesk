@@ -8,6 +8,7 @@ from helpdesk_agent import (
     POLICIES,
     GEN_MODEL,
     EMBED_MODEL,
+    LAST_RETRIEVAL,
 )
 
 
@@ -43,20 +44,6 @@ st.markdown(
         margin-bottom: 1.5rem;
     }
 
-    .status-card {
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 10px;
-    }
-
-    .ticket-card {
-        padding: 14px;
-        border-radius: 12px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 10px;
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -64,7 +51,7 @@ st.markdown(
 
 
 # ============================================================
-# INITIALIZATION
+# INITIALIZE SYSTEM
 # ============================================================
 
 @st.cache_resource
@@ -108,35 +95,43 @@ with st.sidebar:
 
     st.subheader("⚙️ System")
 
-    st.success(
-        "🟢 Gemini API Connected"
-    )
+    if system_ready:
 
-    st.success(
-        "🟢 Knowledge Base Ready"
-    )
+        st.success(
+            "🟢 Gemini API Connected"
+        )
+
+        st.success(
+            "🟢 Knowledge Base Ready"
+        )
+
+    else:
+
+        st.error(
+            "🔴 System Not Ready"
+        )
 
     st.divider()
 
     st.subheader("🤖 AI Configuration")
 
     st.write(
-        f"**Generation Model**  \n"
+        f"**Generation Model**\n\n"
         f"`{GEN_MODEL}`"
     )
 
     st.write(
-        f"**Embedding Model**  \n"
+        f"**Embedding Model**\n\n"
         f"`{EMBED_MODEL}`"
     )
 
     st.write(
-        "**Retrieval**  \n"
+        "**Retrieval**\n\n"
         "`Cosine Similarity`"
     )
 
     st.write(
-        "**Architecture**  \n"
+        "**Architecture**\n\n"
         "`RAG + Agentic Tool Calling`"
     )
 
@@ -193,7 +188,7 @@ st.markdown(
 
 
 # ============================================================
-# TOP STATUS
+# TOP METRICS
 # ============================================================
 
 col1, col2, col3 = st.columns(3)
@@ -292,6 +287,14 @@ if prompt:
         st.markdown(prompt)
 
     # --------------------------------------------------------
+    # RESET RETRIEVAL STATUS
+    # --------------------------------------------------------
+
+    LAST_RETRIEVAL["found"] = False
+    LAST_RETRIEVAL["title"] = None
+    LAST_RETRIEVAL["score"] = 0.0
+
+    # --------------------------------------------------------
     # AI RESPONSE
     # --------------------------------------------------------
 
@@ -310,11 +313,39 @@ if prompt:
 
             except Exception as error:
 
-                answer = (
-                    "Sorry, an error occurred "
-                    "while processing your question.\n\n"
-                    f"Technical details: {error}"
-                )
+                error_text = str(
+                    error
+                ).upper()
+
+                if (
+                    "429" in error_text
+                    or "RESOURCE_EXHAUSTED" in error_text
+                ):
+
+                    answer = (
+                        "⚠️ **AI service quota temporarily "
+                        "exceeded.**\n\n"
+                        "The Gemini API free-tier quota has "
+                        "been reached. Please try again later."
+                    )
+
+                elif (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                ):
+
+                    answer = (
+                        "⚠️ **AI service is temporarily busy.**\n\n"
+                        "Please try again in a few moments."
+                    )
+
+                else:
+
+                    answer = (
+                        "⚠️ **Something went wrong while "
+                        "processing your question.**\n\n"
+                        "Please try again later."
+                    )
 
         st.markdown(answer)
 
@@ -328,6 +359,73 @@ if prompt:
             "content": answer,
         }
     )
+
+    # ========================================================
+    # RAG TRANSPARENCY
+    # ========================================================
+
+    retrieval = LAST_RETRIEVAL
+
+    with st.expander(
+        "🔎 RAG Retrieval Details",
+        expanded=False,
+    ):
+
+        if retrieval["found"]:
+
+            st.success(
+                "✅ Confident policy match found"
+            )
+
+            st.write(
+                f"**Retrieved Policy:** "
+                f"{retrieval['title']}"
+            )
+
+            st.write(
+                f"**Cosine Similarity:** "
+                f"{retrieval['score']:.4f}"
+            )
+
+            st.progress(
+                min(
+                    max(
+                        retrieval["score"],
+                        0.0
+                    ),
+                    1.0
+                )
+            )
+
+            st.caption(
+                "The policy was retrieved from the "
+                "university knowledge base before "
+                "the final answer was generated."
+            )
+
+        else:
+
+            if retrieval["score"] > 0:
+
+                st.warning(
+                    "⚠️ No confident policy match found"
+                )
+
+                st.write(
+                    f"**Best Similarity Score:** "
+                    f"{retrieval['score']:.4f}"
+                )
+
+                st.caption(
+                    "No sufficiently relevant policy "
+                    "was found in the knowledge base."
+                )
+
+            else:
+
+                st.info(
+                    "ℹ️ No retrieval information available."
+                )
 
 
 # ============================================================

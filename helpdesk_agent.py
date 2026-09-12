@@ -12,17 +12,11 @@ from google.genai import types
 # CONFIGURATION
 # ============================================================
 
-# Gemini models
 EMBED_MODEL = "gemini-embedding-001"
 GEN_MODEL = "gemini-3.8-flash"
-
-# Fallback generation model
 FALLBACK_MODEL = "gemini-3.6-flash"
 
-# Minimum similarity required to consider a policy relevant
 MIN_SCORE = 0.40
-
-# Maximum automatic tool calls
 MAX_TOOL_CALLS = 6
 
 
@@ -39,15 +33,12 @@ def get_gemini_client():
         api_key = st.secrets["GEMINI_API_KEY"]
 
     except Exception as error:
-
         raise RuntimeError(
             "GEMINI_API_KEY was not found in Streamlit Secrets.\n\n"
-            "Go to Streamlit Cloud → Settings → Secrets and add:\n\n"
-            'GEMINI_API_KEY = "YOUR_API_KEY"'
+            "For Streamlit Cloud, add GEMINI_API_KEY in Secrets."
         ) from error
 
     if not api_key or not api_key.strip():
-
         raise RuntimeError(
             "GEMINI_API_KEY is empty."
         )
@@ -74,7 +65,6 @@ POLICY_FILE = BASE_DIR / "policies.json"
 # ============================================================
 
 if not POLICY_FILE.exists():
-
     raise FileNotFoundError(
         f"Could not find policies.json at:\n{POLICY_FILE}"
     )
@@ -97,6 +87,17 @@ TICKETS = []
 
 
 # ============================================================
+# RAG RETRIEVAL STATUS
+# ============================================================
+
+LAST_RETRIEVAL = {
+    "found": False,
+    "title": None,
+    "score": 0.0,
+}
+
+
+# ============================================================
 # CHECK GEMINI
 # ============================================================
 
@@ -104,8 +105,7 @@ def check_gemini():
     """
     Check whether the Gemini API key is configured.
 
-    This does NOT send a Gemini generation request.
-    Therefore, it does not consume a model request.
+    This does not make a generation request.
     """
 
     try:
@@ -113,14 +113,9 @@ def check_gemini():
         api_key = st.secrets["GEMINI_API_KEY"]
 
         if not api_key or not api_key.strip():
-
             raise RuntimeError(
                 "GEMINI_API_KEY is empty."
             )
-
-        print(
-            "Gemini API key configured."
-        )
 
         return True
 
@@ -128,8 +123,6 @@ def check_gemini():
 
         raise RuntimeError(
             "Gemini API configuration failed.\n\n"
-            "Make sure GEMINI_API_KEY is present "
-            "in Streamlit Secrets.\n\n"
             f"Error: {error}"
         ) from error
 
@@ -140,21 +133,16 @@ def check_gemini():
 
 def embed_documents(docs):
     """
-    Convert policy documents into embeddings
-    using Gemini Embedding.
+    Convert policy documents into Gemini embeddings.
     """
 
     formatted_documents = []
 
     for document in docs:
 
-        formatted = (
+        formatted_documents.append(
             f"title: {document['title']} | "
             f"text: {document['text']}"
-        )
-
-        formatted_documents.append(
-            formatted
         )
 
     try:
@@ -193,13 +181,8 @@ def embed_documents(docs):
 
 def embed_query(query):
     """
-    Convert a student's question into an embedding.
+    Convert a student question into a Gemini embedding.
     """
-
-    formatted_query = (
-        f"task: search result | "
-        f"query: {query}"
-    )
 
     try:
 
@@ -207,7 +190,7 @@ def embed_query(query):
 
             model=EMBED_MODEL,
 
-            contents=formatted_query,
+            contents=query,
 
             config=types.EmbedContentConfig(
 
@@ -224,12 +207,10 @@ def embed_query(query):
             f"{error}"
         ) from error
 
-    embedding = np.asarray(
+    return np.asarray(
         result.embeddings[0].values,
         dtype=np.float32,
     )
-
-    return embedding
 
 
 # ============================================================
@@ -275,12 +256,10 @@ def cosine_similarity(
         document_matrix / document_norms
     )
 
-    scores = (
+    return (
         normalized_documents
         @ normalized_query
     )
-
-    return scores
 
 
 # ============================================================
@@ -298,17 +277,8 @@ def build_embedding_index():
 
     global POLICY_EMBEDDINGS
 
-    print(
-        "\nCreating policy embeddings..."
-    )
-
     POLICY_EMBEDDINGS = embed_documents(
         POLICIES
-    )
-
-    print(
-        "Embedding matrix shape:",
-        POLICY_EMBEDDINGS.shape
     )
 
 
@@ -323,12 +293,17 @@ def search_policies(
     Search the university policy knowledge base.
 
     Uses Gemini embeddings and cosine similarity.
-
-    Args:
-        query: The student's question or topic.
     """
 
+    global LAST_RETRIEVAL
+
     if POLICY_EMBEDDINGS is None:
+
+        LAST_RETRIEVAL = {
+            "found": False,
+            "title": None,
+            "score": 0.0,
+        }
 
         return (
             "Policy knowledge base is not initialized."
@@ -351,21 +326,36 @@ def search_policies(
         scores[best_index]
     )
 
-    print(
-        f"\n[Retrieval] Best similarity score: "
-        f"{best_score:.4f}"
-    )
+    # --------------------------------------------------------
+    # NO CONFIDENT MATCH
+    # --------------------------------------------------------
 
     if best_score < MIN_SCORE:
+
+        LAST_RETRIEVAL = {
+            "found": False,
+            "title": None,
+            "score": best_score,
+        }
 
         return (
             "No confident match found in "
             "the policy knowledge base."
         )
 
+    # --------------------------------------------------------
+    # CONFIDENT MATCH
+    # --------------------------------------------------------
+
     policy = POLICIES[
         best_index
     ]
+
+    LAST_RETRIEVAL = {
+        "found": True,
+        "title": policy["title"],
+        "score": best_score,
+    }
 
     return (
         f"[{policy['title']}] "
@@ -383,11 +373,7 @@ def create_support_ticket(
 ) -> str:
     """
     Create a support ticket when the knowledge base
-    cannot confidently answer the student's question.
-
-    Args:
-        question: The student's original question.
-        reason: Why human support is required.
+    cannot answer the question.
     """
 
     ticket = {
@@ -415,7 +401,7 @@ def create_support_ticket(
 
 
 # ============================================================
-# TOOLS AVAILABLE TO GEMINI
+# TOOLS
 # ============================================================
 
 TOOLS = [
@@ -438,14 +424,14 @@ IMPORTANT RULES:
 
 1. For every factual question about university,
    workshop, hostel, library, attendance,
-   assignment, examination, or other policy,
-   ALWAYS call search_policies first.
+   assignment, examination, or other university
+   policy, ALWAYS call search_policies first.
 
 2. Never answer a university policy question
    using your own memory.
 
 3. If search_policies returns a confident match,
-   answer ONLY using the information returned
+   answer using ONLY the information returned
    by search_policies.
 
 4. When answering from a policy, include the
@@ -458,19 +444,16 @@ IMPORTANT RULES:
    then call create_support_ticket.
 
 6. When creating a ticket, use the student's
-   original question and explain that the
-   information is not available in the
-   knowledge base.
+   original question.
 
 7. NEVER invent university policies,
    passwords, rules, dates, fees, or procedures.
 
 8. Be concise, clear, and helpful.
 
-9. If the question is unrelated to university
-   policy, answer normally if it can be answered
-   safely without inventing university-specific
-   information.
+9. For unknown university information, explain
+   that the information is unavailable and that
+   a support ticket has been created.
 """
 
 
@@ -486,13 +469,11 @@ def run_agent(
     """
     Run Gemini with automatic Python function calling.
 
-    Primary:
+    Primary model:
         gemini-3.8-flash
 
-    Fallback:
-        gemini-2.5-flash
-
-    Handles temporary 503 and 429 errors.
+    Fallback model:
+        gemini-3.6-flash
     """
 
     models_to_try = [
@@ -534,12 +515,6 @@ def run_agent(
             )
 
             if response.text:
-
-                if verbose:
-
-                    print(
-                        "\n[Agent] Final answer generated."
-                    )
 
                 return response.text
 
@@ -596,10 +571,6 @@ def run_agent(
                 f"{error}"
             )
 
-    # ========================================================
-    # ALL MODELS FAILED
-    # ========================================================
-
     return (
         "Gemini is temporarily unavailable.\n\n"
         "Please try again in a few moments.\n\n"
@@ -608,7 +579,7 @@ def run_agent(
 
 
 # ============================================================
-# ADD A NEW POLICY
+# ADD POLICY
 # ============================================================
 
 def add_policy(
@@ -616,8 +587,7 @@ def add_policy(
     text: str
 ):
     """
-    Add a new policy to the knowledge base
-    and rebuild the embedding index.
+    Add a new policy to the knowledge base.
     """
 
     POLICIES.append(
@@ -642,26 +612,12 @@ def add_policy(
 
     build_embedding_index()
 
-    print(
-        f"\nNew policy added: {title}"
-    )
-
-    print(
-        f"Knowledge base now contains "
-        f"{len(POLICIES)} policies."
-    )
-
 
 # ============================================================
 # DISPLAY TICKETS
 # ============================================================
 
 def display_tickets():
-
-    print("\n")
-    print("=" * 70)
-    print("SUPPORT TICKETS")
-    print("=" * 70)
 
     if not TICKETS:
 
@@ -699,145 +655,56 @@ def display_tickets():
 
 if __name__ == "__main__":
 
-    print()
-    print("=" * 70)
-    print("🎓 GROUNDED STUDENT HELPDESK AGENT")
-    print("=" * 70)
-
     print(
-        "\nTechnology:"
+        "\n🎓 GROUNDED STUDENT HELPDESK AGENT"
     )
 
     print(
-        "  Generation Model :",
+        "\nGeneration Model:",
         GEN_MODEL,
     )
 
     print(
-        "  Embedding Model  :",
+        "Embedding Model:",
         EMBED_MODEL,
     )
 
     print(
-        "  Fallback Model   :",
+        "Fallback Model:",
         FALLBACK_MODEL,
     )
 
     print(
-        "  Retrieval        : Cosine Similarity"
-    )
-
-    print(
-        "  Architecture     : "
-        "RAG + Agentic Tool Calling"
-    )
-
-    print(
-        "  Knowledge Base   :",
+        "Policies:",
         len(POLICIES),
-        "policies",
     )
 
-    # --------------------------------------------------------
-    # STEP 1
-    # Check Gemini
-    # --------------------------------------------------------
+    check_gemini()
 
-    try:
+    build_embedding_index()
 
-        check_gemini()
+    question = input(
+        "\nAsk a question: "
+    )
 
-    except Exception as error:
+    answer = run_agent(
+        question
+    )
 
-        print(
-            "\n❌ Gemini setup error:"
-        )
+    print(
+        "\nAnswer:\n"
+    )
 
-        print(error)
+    print(
+        answer
+    )
 
-        raise SystemExit(1)
+    print(
+        "\nRetrieval Information:"
+    )
 
-    # --------------------------------------------------------
-    # STEP 2
-    # Build embeddings
-    # --------------------------------------------------------
-
-    try:
-
-        build_embedding_index()
-
-    except Exception as error:
-
-        print(
-            "\n❌ Embedding error:"
-        )
-
-        print(error)
-
-        raise SystemExit(1)
-
-    # --------------------------------------------------------
-    # STEP 3
-    # Test questions
-    # --------------------------------------------------------
-
-    test_questions = [
-
-        "What attendance percentage do I need for FAT?",
-
-        "How late can I submit an assignment?",
-
-        "When can I request revaluation?",
-
-        "What are the library timings on Saturday?",
-
-        "What is the WiFi password for the boys hostel?",
-    ]
-
-    # --------------------------------------------------------
-    # STEP 4
-    # Run tests
-    # --------------------------------------------------------
-
-    print("\n")
-    print("=" * 70)
-    print("RUNNING AGENT TESTS")
-    print("=" * 70)
-
-    for number, question in enumerate(
-        test_questions,
-        start=1,
-    ):
-
-        print("\n")
-        print("-" * 70)
-
-        print(
-            f"TEST {number}"
-        )
-
-        print(
-            f"Q: {question}"
-        )
-
-        answer = run_agent(
-            question,
-            verbose=True,
-        )
-
-        print(
-            "\nA:",
-            answer,
-        )
-
-    # --------------------------------------------------------
-    # STEP 5
-    # Display tickets
-    # --------------------------------------------------------
+    print(
+        LAST_RETRIEVAL
+    )
 
     display_tickets()
-
-    print("\n")
-    print("=" * 70)
-    print("PROJECT EXECUTION COMPLETED")
-    print("=" * 70)
