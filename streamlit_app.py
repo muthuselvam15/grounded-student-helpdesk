@@ -18,48 +18,78 @@ from helpdesk_agent import (
 st.set_page_config(
     page_title="Grounded Student Helpdesk",
     page_icon="🎓",
-    layout="centered",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
 # ============================================================
-# INITIALIZE APPLICATION
+# CUSTOM CSS
 # ============================================================
 
-st.title("🎓 Grounded Student Helpdesk")
+st.markdown(
+    """
+    <style>
 
-st.caption(
-    "Gemini + RAG + Embeddings + Agentic Tool Calling"
+    .main-title {
+        font-size: 2.4rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+
+    .subtitle {
+        font-size: 1.05rem;
+        opacity: 0.75;
+        margin-bottom: 1.5rem;
+    }
+
+    .status-card {
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 10px;
+    }
+
+    .ticket-card {
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 10px;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# INITIALIZE GEMINI AND EMBEDDINGS
+# INITIALIZATION
 # ============================================================
 
-if "initialized" not in st.session_state:
+@st.cache_resource
+def initialize_system():
 
-    with st.spinner(
-        "Connecting to Gemini and loading the policy knowledge base..."
-    ):
+    check_gemini()
 
-        try:
+    build_embedding_index()
 
-            # Check Gemini API
-            check_gemini()
+    return True
 
-            # Build policy embeddings
-            build_embedding_index()
 
-            st.session_state.initialized = True
+try:
 
-        except Exception as error:
+    initialize_system()
 
-            st.error(
-                f"❌ Initialization failed:\n\n{error}"
-            )
+    system_ready = True
 
-            st.stop()
+except Exception as error:
+
+    system_ready = False
+
+    st.error(
+        f"System initialization failed:\n\n{error}"
+    )
 
 
 # ============================================================
@@ -68,144 +98,236 @@ if "initialized" not in st.session_state:
 
 with st.sidebar:
 
-    st.header("⚙️ System Information")
+    st.title("🎓 Helpdesk")
 
-    st.write(
-        f"**Generation Model:** `{GEN_MODEL}`"
-    )
-
-    st.write(
-        f"**Embedding Model:** `{EMBED_MODEL}`"
-    )
-
-    st.write(
-        "**Retrieval:** Cosine Similarity"
-    )
-
-    st.write(
-        "**Architecture:** RAG + Agentic Tool Calling"
-    )
-
-    st.write(
-        f"**Policies:** {len(POLICIES)}"
+    st.caption(
+        "Grounded Student AI Assistant"
     )
 
     st.divider()
 
-    st.subheader("🔧 System Status")
+    st.subheader("⚙️ System")
 
-    st.success("Gemini API Connected")
+    st.success(
+        "🟢 Gemini API Connected"
+    )
 
-    st.success("Gemini Models Available")
+    st.success(
+        "🟢 Knowledge Base Ready"
+    )
 
-    st.success("Knowledge Base Ready")
+    st.divider()
+
+    st.subheader("🤖 AI Configuration")
+
+    st.write(
+        f"**Generation Model**  \n"
+        f"`{GEN_MODEL}`"
+    )
+
+    st.write(
+        f"**Embedding Model**  \n"
+        f"`{EMBED_MODEL}`"
+    )
+
+    st.write(
+        "**Retrieval**  \n"
+        "`Cosine Similarity`"
+    )
+
+    st.write(
+        "**Architecture**  \n"
+        "`RAG + Agentic Tool Calling`"
+    )
+
+    st.divider()
+
+    st.subheader("📚 Knowledge Base")
+
+    st.metric(
+        "Policies",
+        len(POLICIES)
+    )
+
+    st.divider()
+
+    st.subheader("💡 Example Questions")
+
+    examples = [
+        "What attendance percentage do I need for FAT?",
+        "When can I request revaluation?",
+        "What are the library timings?",
+        "What is the assignment submission policy?",
+    ]
+
+    for example in examples:
+
+        if st.button(
+            example,
+            use_container_width=True,
+        ):
+
+            st.session_state[
+                "selected_question"
+            ] = example
 
 
 # ============================================================
-# PROJECT DESCRIPTION
+# HEADER
 # ============================================================
 
 st.markdown(
-    """
-This AI helpdesk answers student questions using a **grounded
-policy knowledge base**.
+    '<div class="main-title">'
+    '🎓 Grounded Student Helpdesk'
+    '</div>',
+    unsafe_allow_html=True,
+)
 
-### How it works
-
-**Student Question → Gemini → Policy Search → Gemini Embeddings →
-Cosine Similarity → Grounded Answer**
-
-If no confident policy match is found:
-
-**Student Question → Search → No Match → Support Ticket**
-"""
+st.markdown(
+    '<div class="subtitle">'
+    'AI-powered university helpdesk using '
+    'Gemini, RAG, embeddings, and agentic tools.'
+    '</div>',
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# EXAMPLE QUESTIONS
+# TOP STATUS
 # ============================================================
 
-st.subheader("💡 Try an Example")
+col1, col2, col3 = st.columns(3)
 
-example_questions = [
+with col1:
 
-    "What attendance percentage do I need for FAT?",
+    st.metric(
+        "📚 Policies",
+        len(POLICIES),
+    )
 
-    "How late can I submit an assignment?",
+with col2:
 
-    "When can I request revaluation?",
+    st.metric(
+        "🤖 AI Model",
+        "Gemini 3.8",
+    )
 
-    "What are the library timings on Saturday?",
+with col3:
 
-    "What is the WiFi password for the boys hostel?",
-]
-
-
-selected_question = st.selectbox(
-    "Select a sample question",
-    [""] + example_questions,
-)
+    st.metric(
+        "🎫 Support Tickets",
+        len(TICKETS),
+    )
 
 
-# ============================================================
-# USER QUESTION
-# ============================================================
-
-question = st.text_area(
-
-    "🎓 Student Question",
-
-    value=selected_question,
-
-    placeholder=(
-        "Example: What attendance percentage "
-        "do I need for FAT?"
-    ),
-
-    height=100,
-)
+st.divider()
 
 
 # ============================================================
-# ASK BUTTON
+# CHAT HISTORY
 # ============================================================
 
-if st.button(
-    "🤖 Ask Helpdesk",
-    type="primary",
-    use_container_width=True,
-):
+if "messages" not in st.session_state:
 
-    if not question.strip():
+    st.session_state.messages = []
 
-        st.warning(
-            "Please enter a question."
+
+for message in st.session_state.messages:
+
+    with st.chat_message(
+        message["role"]
+    ):
+
+        st.markdown(
+            message["content"]
         )
 
-    else:
+
+# ============================================================
+# QUESTION INPUT
+# ============================================================
+
+selected_question = st.session_state.pop(
+    "selected_question",
+    None,
+)
+
+prompt = st.chat_input(
+    "Ask a question about university policies..."
+)
+
+if selected_question:
+
+    prompt = selected_question
+
+
+# ============================================================
+# PROCESS QUESTION
+# ============================================================
+
+if prompt:
+
+    if not system_ready:
+
+        st.error(
+            "The helpdesk is not ready. "
+            "Please refresh the application."
+        )
+
+        st.stop()
+
+    # --------------------------------------------------------
+    # USER MESSAGE
+    # --------------------------------------------------------
+
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": prompt,
+        }
+    )
+
+    with st.chat_message("user"):
+
+        st.markdown(prompt)
+
+    # --------------------------------------------------------
+    # AI RESPONSE
+    # --------------------------------------------------------
+
+    with st.chat_message("assistant"):
 
         with st.spinner(
-            "Gemini is processing your question..."
+            "🔎 Searching knowledge base..."
         ):
 
             try:
 
                 answer = run_agent(
-                    question.strip(),
+                    prompt,
                     verbose=False,
                 )
 
-                st.subheader("💬 Helpdesk Response")
-
-                st.success(answer)
-
             except Exception as error:
 
-                st.error(
-                    f"❌ Error while processing the question:\n\n"
-                    f"{error}"
+                answer = (
+                    "Sorry, an error occurred "
+                    "while processing your question.\n\n"
+                    f"Technical details: {error}"
                 )
+
+        st.markdown(answer)
+
+    # --------------------------------------------------------
+    # SAVE RESPONSE
+    # --------------------------------------------------------
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": answer,
+        }
+    )
 
 
 # ============================================================
@@ -216,33 +338,33 @@ if TICKETS:
 
     st.divider()
 
-    st.subheader("🎫 Support Tickets")
+    st.subheader(
+        "🎫 Support Tickets"
+    )
 
     for ticket in reversed(TICKETS):
 
-        with st.expander(
-            f"Ticket #{ticket['id']} — {ticket['created_at']}"
+        with st.container(
+            border=True
         ):
 
-            st.write(
-                "**Question:**"
+            st.markdown(
+                f"### Ticket #{ticket['id']}"
             )
 
             st.write(
-                ticket["question"]
+                f"**Question:** "
+                f"{ticket['question']}"
             )
 
             st.write(
-                "**Reason:**"
+                f"**Reason:** "
+                f"{ticket['reason']}"
             )
 
-            st.write(
-                ticket["reason"]
-            )
-
-            st.info(
-                f"Ticket #{ticket['id']} "
-                "has been queued for the support team."
+            st.caption(
+                f"Created: "
+                f"{ticket['created_at']}"
             )
 
 
