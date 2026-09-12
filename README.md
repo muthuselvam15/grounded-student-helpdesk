@@ -127,4 +127,7 @@ Unknown questions should be escalated rather than answered from model memory.
 ## Extension ideas
 
 1. Add PDF/document ingestion.
+   ## 📸 Application Interface
+
+![Grounded Student Helpdesk](assets/helpdesk-interface.png)
 
