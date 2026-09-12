@@ -13,14 +13,17 @@ from google.genai import types
 # ============================================================
 
 # Gemini models
-EMBED_MODEL = "gemini-embedding-2"
+EMBED_MODEL = "gemini-embedding-001"
 GEN_MODEL = "gemini-3.8-flash"
+
+# Fallback generation model
+FALLBACK_MODEL = "gemini-2.5-flash"
 
 # Minimum similarity required to consider a policy relevant
 MIN_SCORE = 0.40
 
-# Maximum number of agent/tool-calling rounds
-MAX_TURNS = 6
+# Maximum automatic tool calls
+MAX_TOOL_CALLS = 6
 
 
 # ============================================================
@@ -34,14 +37,24 @@ def get_gemini_client():
 
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
+
     except Exception as error:
+
         raise RuntimeError(
             "GEMINI_API_KEY was not found in Streamlit Secrets.\n\n"
             "Go to Streamlit Cloud → Settings → Secrets and add:\n\n"
             'GEMINI_API_KEY = "YOUR_API_KEY"'
         ) from error
 
-    return genai.Client(api_key=api_key)
+    if not api_key or not api_key.strip():
+
+        raise RuntimeError(
+            "GEMINI_API_KEY is empty."
+        )
+
+    return genai.Client(
+        api_key=api_key
+    )
 
 
 client = get_gemini_client()
@@ -61,12 +74,18 @@ POLICY_FILE = BASE_DIR / "policies.json"
 # ============================================================
 
 if not POLICY_FILE.exists():
+
     raise FileNotFoundError(
         f"Could not find policies.json at:\n{POLICY_FILE}"
     )
 
 
-with open(POLICY_FILE, "r", encoding="utf-8") as file:
+with open(
+    POLICY_FILE,
+    "r",
+    encoding="utf-8"
+) as file:
+
     POLICIES = json.load(file)
 
 
@@ -76,6 +95,7 @@ with open(POLICY_FILE, "r", encoding="utf-8") as file:
 
 TICKETS = []
 
+
 # ============================================================
 # CHECK GEMINI
 # ============================================================
@@ -84,8 +104,8 @@ def check_gemini():
     """
     Check whether the Gemini API key is configured.
 
-    This does NOT make a Gemini generation request,
-    so it does not consume the model's request quota.
+    This does NOT send a Gemini generation request.
+    Therefore, it does not consume a model request.
     """
 
     try:
@@ -98,19 +118,20 @@ def check_gemini():
                 "GEMINI_API_KEY is empty."
             )
 
-        print("Gemini API key configured.")
+        print(
+            "Gemini API key configured."
+        )
 
         return True
 
     except Exception as error:
 
         raise RuntimeError(
-            "Gemini API key configuration failed.\n\n"
+            "Gemini API configuration failed.\n\n"
             "Make sure GEMINI_API_KEY is present "
             "in Streamlit Secrets.\n\n"
             f"Error: {error}"
         ) from error
-
 
 
 # ============================================================
@@ -119,7 +140,8 @@ def check_gemini():
 
 def embed_documents(docs):
     """
-    Convert policy documents into embeddings using Gemini.
+    Convert policy documents into embeddings
+    using Gemini Embedding.
     """
 
     formatted_documents = []
@@ -131,15 +153,22 @@ def embed_documents(docs):
             f"text: {document['text']}"
         )
 
-        formatted_documents.append(formatted)
+        formatted_documents.append(
+            formatted
+        )
 
     try:
 
         result = client.models.embed_content(
+
             model=EMBED_MODEL,
+
             contents=formatted_documents,
+
             config=types.EmbedContentConfig(
+
                 task_type="RETRIEVAL_DOCUMENT",
+
                 output_dimensionality=768,
             ),
         )
@@ -147,11 +176,15 @@ def embed_documents(docs):
     except Exception as error:
 
         raise RuntimeError(
-            f"Gemini document embedding failed:\n{error}"
+            "Gemini document embedding failed:\n"
+            f"{error}"
         ) from error
 
     embeddings = np.asarray(
-        [embedding.values for embedding in result.embeddings],
+        [
+            embedding.values
+            for embedding in result.embeddings
+        ],
         dtype=np.float32,
     )
 
@@ -171,10 +204,15 @@ def embed_query(query):
     try:
 
         result = client.models.embed_content(
+
             model=EMBED_MODEL,
+
             contents=formatted_query,
+
             config=types.EmbedContentConfig(
+
                 task_type="RETRIEVAL_QUERY",
+
                 output_dimensionality=768,
             ),
         )
@@ -182,7 +220,8 @@ def embed_query(query):
     except Exception as error:
 
         raise RuntimeError(
-            f"Gemini query embedding failed:\n{error}"
+            "Gemini query embedding failed:\n"
+            f"{error}"
         ) from error
 
     embedding = np.asarray(
@@ -197,13 +236,18 @@ def embed_query(query):
 # COSINE SIMILARITY
 # ============================================================
 
-def cosine_similarity(query_vector, document_matrix):
+def cosine_similarity(
+    query_vector,
+    document_matrix
+):
     """
     Calculate cosine similarity between the query
     and every policy document.
     """
 
-    query_norm = np.linalg.norm(query_vector)
+    query_norm = np.linalg.norm(
+        query_vector
+    )
 
     if query_norm == 0:
 
@@ -232,14 +276,15 @@ def cosine_similarity(query_vector, document_matrix):
     )
 
     scores = (
-        normalized_documents @ normalized_query
+        normalized_documents
+        @ normalized_query
     )
 
     return scores
 
 
 # ============================================================
-# BUILD INITIAL EMBEDDING INDEX
+# BUILD EMBEDDING INDEX
 # ============================================================
 
 POLICY_EMBEDDINGS = None
@@ -247,12 +292,15 @@ POLICY_EMBEDDINGS = None
 
 def build_embedding_index():
     """
-    Create embeddings for the complete policy knowledge base.
+    Create embeddings for the complete policy
+    knowledge base.
     """
 
     global POLICY_EMBEDDINGS
 
-    print("\nCreating policy embeddings...")
+    print(
+        "\nCreating policy embeddings..."
+    )
 
     POLICY_EMBEDDINGS = embed_documents(
         POLICIES
@@ -268,12 +316,13 @@ def build_embedding_index():
 # POLICY SEARCH TOOL
 # ============================================================
 
-def search_policies(query: str) -> str:
+def search_policies(
+    query: str
+) -> str:
     """
     Search the university policy knowledge base.
 
-    This tool uses Gemini embeddings and cosine similarity
-    to find the most relevant policy.
+    Uses Gemini embeddings and cosine similarity.
 
     Args:
         query: The student's question or topic.
@@ -285,7 +334,9 @@ def search_policies(query: str) -> str:
             "Policy knowledge base is not initialized."
         )
 
-    query_vector = embed_query(query)
+    query_vector = embed_query(
+        query
+    )
 
     scores = cosine_similarity(
         query_vector,
@@ -312,7 +363,9 @@ def search_policies(query: str) -> str:
             "the policy knowledge base."
         )
 
-    policy = POLICIES[best_index]
+    policy = POLICIES[
+        best_index
+    ]
 
     return (
         f"[{policy['title']}] "
@@ -326,7 +379,7 @@ def search_policies(query: str) -> str:
 
 def create_support_ticket(
     question: str,
-    reason: str,
+    reason: str
 ) -> str:
     """
     Create a support ticket when the knowledge base
@@ -351,7 +404,9 @@ def create_support_ticket(
         ),
     }
 
-    TICKETS.append(ticket)
+    TICKETS.append(
+        ticket
+    )
 
     return (
         f"Ticket #{ticket['id']} "
@@ -386,8 +441,8 @@ IMPORTANT RULES:
    assignment, examination, or other policy,
    ALWAYS call search_policies first.
 
-2. Never answer a policy question using your
-   own memory.
+2. Never answer a university policy question
+   using your own memory.
 
 3. If search_policies returns a confident match,
    answer ONLY using the information returned
@@ -425,58 +480,130 @@ IMPORTANT RULES:
 
 def run_agent(
     user_message: str,
-    max_turns: int = MAX_TURNS,
+    max_turns: int = MAX_TOOL_CALLS,
     verbose: bool = True,
 ) -> str:
     """
-    Run the Gemini agent with function calling.
+    Run Gemini with automatic Python function calling.
 
-    Gemini automatically decides when to use:
-        - search_policies
-        - create_support_ticket
+    Primary:
+        gemini-3.8-flash
+
+    Fallback:
+        gemini-2.5-flash
+
+    Handles temporary 503 and 429 errors.
     """
 
-    if verbose:
+    models_to_try = [
+        GEN_MODEL,
+        FALLBACK_MODEL,
+    ]
 
-        print(
-            "\n[Agent] Sending request to Gemini..."
-        )
+    last_error = None
 
-    try:
-
-        response = client.models.generate_content(
-            model=GEN_MODEL,
-
-            contents=user_message,
-
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-
-                tools=TOOLS,
-
-                temperature=0,
-            ),
-        )
-
-    except Exception as error:
-
-        return (
-            "Error communicating with Gemini:\n"
-            f"{error}"
-        )
-
-    if response.text:
+    for model_name in models_to_try:
 
         if verbose:
 
             print(
-                "\n[Agent] Final answer generated."
+                f"\n[Agent] Using model: "
+                f"{model_name}"
             )
 
-        return response.text
+        try:
+
+            response = client.models.generate_content(
+
+                model=model_name,
+
+                contents=user_message,
+
+                config=types.GenerateContentConfig(
+
+                    system_instruction=SYSTEM_PROMPT,
+
+                    tools=TOOLS,
+
+                    automatic_function_calling=(
+                        types.AutomaticFunctionCallingConfig(
+                            maximum_remote_calls=max_turns
+                        )
+                    ),
+                ),
+            )
+
+            if response.text:
+
+                if verbose:
+
+                    print(
+                        "\n[Agent] Final answer generated."
+                    )
+
+                return response.text
+
+            return (
+                "Gemini did not generate a response."
+            )
+
+        except Exception as error:
+
+            last_error = error
+
+            error_text = str(
+                error
+            ).upper()
+
+            # ------------------------------------------------
+            # TEMPORARY SERVICE ERROR
+            # ------------------------------------------------
+
+            if (
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+            ):
+
+                print(
+                    f"\n[Agent] {model_name} "
+                    "is temporarily unavailable."
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # QUOTA ERROR
+            # ------------------------------------------------
+
+            if (
+                "429" in error_text
+                or "RESOURCE_EXHAUSTED" in error_text
+            ):
+
+                print(
+                    f"\n[Agent] {model_name} "
+                    "quota exceeded."
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # OTHER ERROR
+            # ------------------------------------------------
+
+            return (
+                "Error communicating with Gemini:\n"
+                f"{error}"
+            )
+
+    # ========================================================
+    # ALL MODELS FAILED
+    # ========================================================
 
     return (
-        "Gemini did not generate a response."
+        "Gemini is temporarily unavailable.\n\n"
+        "Please try again in a few moments.\n\n"
+        f"Technical details: {last_error}"
     )
 
 
@@ -486,7 +613,7 @@ def run_agent(
 
 def add_policy(
     title: str,
-    text: str,
+    text: str
 ):
     """
     Add a new policy to the knowledge base
@@ -538,7 +665,9 @@ def display_tickets():
 
     if not TICKETS:
 
-        print("No support tickets created.")
+        print(
+            "No support tickets created."
+        )
 
         return
 
@@ -590,11 +719,17 @@ if __name__ == "__main__":
     )
 
     print(
+        "  Fallback Model   :",
+        FALLBACK_MODEL,
+    )
+
+    print(
         "  Retrieval        : Cosine Similarity"
     )
 
     print(
-        "  Architecture     : RAG + Agentic Tool Calling"
+        "  Architecture     : "
+        "RAG + Agentic Tool Calling"
     )
 
     print(
@@ -614,7 +749,10 @@ if __name__ == "__main__":
 
     except Exception as error:
 
-        print("\n❌ Gemini setup error:")
+        print(
+            "\n❌ Gemini setup error:"
+        )
+
         print(error)
 
         raise SystemExit(1)
@@ -630,7 +768,10 @@ if __name__ == "__main__":
 
     except Exception as error:
 
-        print("\n❌ Embedding error:")
+        print(
+            "\n❌ Embedding error:"
+        )
+
         print(error)
 
         raise SystemExit(1)
