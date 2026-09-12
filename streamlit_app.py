@@ -255,4 +255,4 @@ st.divider()
 st.caption(
     "🎓 Grounded Student Helpdesk | "
     "Gemini • Embeddings • RAG • Agentic AI"
-# )
+)
