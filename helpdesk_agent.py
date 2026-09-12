@@ -76,47 +76,41 @@ with open(POLICY_FILE, "r", encoding="utf-8") as file:
 
 TICKETS = []
 
-
 # ============================================================
 # CHECK GEMINI
 # ============================================================
 
 def check_gemini():
     """
-    Check whether the Gemini API is configured correctly.
+    Check whether the Gemini API key is configured.
+
+    This does NOT make a Gemini generation request,
+    so it does not consume the model's request quota.
     """
 
-    print("\nChecking Gemini API...")
-
     try:
-        # Small API request to verify the key works
-        response = client.models.generate_content(
-            model=GEN_MODEL,
-            contents="Reply with exactly: Gemini connection successful.",
-            config=types.GenerateContentConfig(
-                temperature=0
-            ),
-        )
 
-        if not response.text:
+        api_key = st.secrets["GEMINI_API_KEY"]
+
+        if not api_key or not api_key.strip():
+
             raise RuntimeError(
-                "Gemini returned an empty response."
+                "GEMINI_API_KEY is empty."
             )
 
-        print("Gemini API is ready.")
-        print("Embedding model :", EMBED_MODEL)
-        print("Generation model:", GEN_MODEL)
+        print("Gemini API key configured.")
 
         return True
 
     except Exception as error:
 
         raise RuntimeError(
-            "\nCould not connect to Gemini API.\n\n"
-            "Check that your GEMINI_API_KEY is valid "
-            "and available in Streamlit Secrets.\n\n"
-            f"Original error: {error}"
+            "Gemini API key configuration failed.\n\n"
+            "Make sure GEMINI_API_KEY is present "
+            "in Streamlit Secrets.\n\n"
+            f"Error: {error}"
         ) from error
+
 
 
 # ============================================================
