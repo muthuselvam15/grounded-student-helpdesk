@@ -127,9 +127,7 @@ Unknown questions should be escalated rather than answered from model memory.
 ## Extension ideas
 
 1. Add PDF/document ingestion.
-2. Store embeddings in a vector database.
-3. Add ticket-status lookup.
-4. Add urgency levels.
-5. Add authentication.
-6. Connect tickets to email or a real helpdesk.
-7. Add multilingual student support.
+   ## 📸 Application Interface
+
+![Grounded Student Helpdesk](assets/helpdesk-interface.png)
+
