@@ -3,21 +3,48 @@ import json
 from pathlib import Path
 
 import numpy as np
-import ollama
+import streamlit as st
+from google import genai
+from google.genai import types
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-EMBED_MODEL = "embeddinggemma"
-GEN_MODEL = "gemma4"
+# Gemini models
+EMBED_MODEL = "gemini-embedding-2"
+GEN_MODEL = "gemini-3.8-flash"
 
 # Minimum similarity required to consider a policy relevant
 MIN_SCORE = 0.40
 
 # Maximum number of agent/tool-calling rounds
 MAX_TURNS = 6
+
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+def get_gemini_client():
+    """
+    Create the Gemini API client using Streamlit Secrets.
+    """
+
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception as error:
+        raise RuntimeError(
+            "GEMINI_API_KEY was not found in Streamlit Secrets.\n\n"
+            "Go to Streamlit Cloud → Settings → Secrets and add:\n\n"
+            'GEMINI_API_KEY = "YOUR_API_KEY"'
+        ) from error
+
+    return genai.Client(api_key=api_key)
+
+
+client = get_gemini_client()
 
 
 # ============================================================
@@ -38,6 +65,7 @@ if not POLICY_FILE.exists():
         f"Could not find policies.json at:\n{POLICY_FILE}"
     )
 
+
 with open(POLICY_FILE, "r", encoding="utf-8") as file:
     POLICIES = json.load(file)
 
@@ -50,76 +78,32 @@ TICKETS = []
 
 
 # ============================================================
-# CHECK OLLAMA
+# CHECK GEMINI
 # ============================================================
 
-def check_ollama():
+def check_gemini():
     """
-    Check whether Ollama is running and required models exist.
+    Check whether the Gemini API is configured correctly.
     """
 
-    print("\nChecking Ollama...")
+    print("\nChecking Gemini API...")
 
     try:
-        response = ollama.list()
+        # Small API request to verify the key works
+        response = client.models.generate_content(
+            model=GEN_MODEL,
+            contents="Reply with exactly: Gemini connection successful.",
+            config=types.GenerateContentConfig(
+                temperature=0
+            ),
+        )
 
-        # Ollama Python SDK normally returns a list-like response
-        models = response.get("models", [])
-
-        installed_models = []
-
-        for model in models:
-
-            # Different SDK versions may expose model name differently
-            if isinstance(model, dict):
-
-                name = (
-                    model.get("name")
-                    or model.get("model")
-                )
-
-            else:
-
-                name = getattr(model, "name", None)
-
-                if name is None:
-                    name = getattr(model, "model", None)
-
-            if name:
-                installed_models.append(
-                    name.split(":")[0]
-                )
-
-        print("Installed models:")
-
-        for model in installed_models:
-            print("  -", model)
-
-        missing_models = []
-
-        if EMBED_MODEL not in installed_models:
-            missing_models.append(EMBED_MODEL)
-
-        if GEN_MODEL not in installed_models:
-            missing_models.append(GEN_MODEL)
-
-        if missing_models:
-
-            print("\nMissing model(s):")
-
-            for model in missing_models:
-                print("  -", model)
-
-            print("\nRun these commands:")
-
-            for model in missing_models:
-                print(f"ollama pull {model}")
-
+        if not response.text:
             raise RuntimeError(
-                "Required Ollama model(s) are missing."
+                "Gemini returned an empty response."
             )
 
-        print("\nOllama is ready.")
+        print("Gemini API is ready.")
         print("Embedding model :", EMBED_MODEL)
         print("Generation model:", GEN_MODEL)
 
@@ -128,10 +112,10 @@ def check_ollama():
     except Exception as error:
 
         raise RuntimeError(
-            "\nCould not connect to Ollama.\n\n"
-            "Make sure Ollama is installed and running.\n"
-            "Then try:\n\n"
-            "    ollama list\n"
+            "\nCould not connect to Gemini API.\n\n"
+            "Check that your GEMINI_API_KEY is valid "
+            "and available in Streamlit Secrets.\n\n"
+            f"Original error: {error}"
         ) from error
 
 
@@ -141,7 +125,7 @@ def check_ollama():
 
 def embed_documents(docs):
     """
-    Convert policy documents into embeddings using EmbeddingGemma.
+    Convert policy documents into embeddings using Gemini.
     """
 
     formatted_documents = []
@@ -155,14 +139,26 @@ def embed_documents(docs):
 
         formatted_documents.append(formatted)
 
-    result = ollama.embed(
-        model=EMBED_MODEL,
-        input=formatted_documents
-    )
+    try:
+
+        result = client.models.embed_content(
+            model=EMBED_MODEL,
+            contents=formatted_documents,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=768,
+            ),
+        )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"Gemini document embedding failed:\n{error}"
+        ) from error
 
     embeddings = np.asarray(
-        result["embeddings"],
-        dtype=np.float32
+        [embedding.values for embedding in result.embeddings],
+        dtype=np.float32,
     )
 
     return embeddings
@@ -178,14 +174,26 @@ def embed_query(query):
         f"query: {query}"
     )
 
-    result = ollama.embed(
-        model=EMBED_MODEL,
-        input=[formatted_query]
-    )
+    try:
+
+        result = client.models.embed_content(
+            model=EMBED_MODEL,
+            contents=formatted_query,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_QUERY",
+                output_dimensionality=768,
+            ),
+        )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"Gemini query embedding failed:\n{error}"
+        ) from error
 
     embedding = np.asarray(
-        result["embeddings"][0],
-        dtype=np.float32
+        result.embeddings[0].values,
+        dtype=np.float32,
     )
 
     return embedding
@@ -201,14 +209,13 @@ def cosine_similarity(query_vector, document_matrix):
     and every policy document.
     """
 
-    query_norm = (
-        np.linalg.norm(query_vector)
-    )
+    query_norm = np.linalg.norm(query_vector)
 
     if query_norm == 0:
+
         return np.zeros(
             document_matrix.shape[0],
-            dtype=np.float32
+            dtype=np.float32,
         )
 
     normalized_query = (
@@ -218,12 +225,12 @@ def cosine_similarity(query_vector, document_matrix):
     document_norms = np.linalg.norm(
         document_matrix,
         axis=1,
-        keepdims=True
+        keepdims=True,
     )
 
     document_norms = np.maximum(
         document_norms,
-        1e-12
+        1e-12,
     )
 
     normalized_documents = (
@@ -271,7 +278,7 @@ def search_policies(query: str) -> str:
     """
     Search the university policy knowledge base.
 
-    This tool uses EmbeddingGemma and cosine similarity
+    This tool uses Gemini embeddings and cosine similarity
     to find the most relevant policy.
 
     Args:
@@ -288,7 +295,7 @@ def search_policies(query: str) -> str:
 
     scores = cosine_similarity(
         query_vector,
-        POLICY_EMBEDDINGS
+        POLICY_EMBEDDINGS,
     )
 
     best_index = int(
@@ -325,7 +332,7 @@ def search_policies(query: str) -> str:
 
 def create_support_ticket(
     question: str,
-    reason: str
+    reason: str,
 ) -> str:
     """
     Create a support ticket when the knowledge base
@@ -347,7 +354,7 @@ def create_support_ticket(
         "created_at": (
             datetime.datetime.now()
             .strftime("%Y-%m-%d %H:%M")
-        )
+        ),
     }
 
     TICKETS.append(ticket)
@@ -359,12 +366,12 @@ def create_support_ticket(
 
 
 # ============================================================
-# TOOLS AVAILABLE TO GEMMA
+# TOOLS AVAILABLE TO GEMINI
 # ============================================================
 
 TOOLS = [
     search_policies,
-    create_support_ticket
+    create_support_ticket,
 ]
 
 
@@ -419,195 +426,63 @@ IMPORTANT RULES:
 
 
 # ============================================================
-# AGENT LOOP
+# AGENT
 # ============================================================
 
 def run_agent(
     user_message: str,
     max_turns: int = MAX_TURNS,
-    verbose: bool = True
+    verbose: bool = True,
 ) -> str:
     """
-    Run the Gemma agent and allow it to call tools.
+    Run the Gemini agent with function calling.
+
+    Gemini automatically decides when to use:
+        - search_policies
+        - create_support_ticket
     """
 
-    messages = [
+    if verbose:
 
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        },
+        print(
+            "\n[Agent] Sending request to Gemini..."
+        )
 
-        {
-            "role": "user",
-            "content": user_message
-        }
-    ]
+    try:
 
-    for turn in range(1, max_turns + 1):
+        response = client.models.generate_content(
+            model=GEN_MODEL,
+
+            contents=user_message,
+
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+
+                tools=TOOLS,
+
+                temperature=0,
+            ),
+        )
+
+    except Exception as error:
+
+        return (
+            "Error communicating with Gemini:\n"
+            f"{error}"
+        )
+
+    if response.text:
 
         if verbose:
 
             print(
-                f"\n[Agent Turn {turn}] "
-                f"Sending request to Gemma..."
+                "\n[Agent] Final answer generated."
             )
 
-        try:
-
-            response = ollama.chat(
-
-                model=GEN_MODEL,
-
-                messages=messages,
-
-                tools=TOOLS,
-
-                options={
-                    "temperature": 0
-                }
-            )
-
-        except Exception as error:
-
-            return (
-                "Error communicating with Gemma:\n"
-                f"{error}"
-            )
-
-        msg = response.message
-
-        # ----------------------------------------------------
-        # IMPORTANT
-        # Add Gemma's response before tool results.
-        # ----------------------------------------------------
-
-        messages.append(msg)
-
-        # ----------------------------------------------------
-        # NO TOOL CALL
-        # Gemma has produced the final answer.
-        # ----------------------------------------------------
-
-        if not msg.tool_calls:
-
-            if verbose:
-
-                print(
-                    "\n[Agent] Final answer generated."
-                )
-
-            return (
-                msg.content
-                or "No answer was generated."
-            )
-
-        # ----------------------------------------------------
-        # TOOL CALLS
-        # ----------------------------------------------------
-
-        for call in msg.tool_calls:
-
-            tool_name = call.function.name
-
-            tool_arguments = dict(
-                call.function.arguments
-            )
-
-            if verbose:
-
-                print(
-                    f"\n[Agent] Tool selected: "
-                    f"{tool_name}"
-                )
-
-                print(
-                    f"[Agent] Arguments: "
-                    f"{tool_arguments}"
-                )
-
-            # ------------------------------------------------
-            # SEARCH POLICY
-            # ------------------------------------------------
-
-            if tool_name == "search_policies":
-
-                try:
-
-                    result = search_policies(
-                        **tool_arguments
-                    )
-
-                except Exception as error:
-
-                    result = (
-                        "Policy search failed: "
-                        f"{error}"
-                    )
-
-            # ------------------------------------------------
-            # CREATE SUPPORT TICKET
-            # ------------------------------------------------
-
-            elif tool_name == "create_support_ticket":
-
-                try:
-
-                    result = create_support_ticket(
-                        **tool_arguments
-                    )
-
-                except Exception as error:
-
-                    result = (
-                        "Ticket creation failed: "
-                        f"{error}"
-                    )
-
-            # ------------------------------------------------
-            # UNKNOWN TOOL
-            # ------------------------------------------------
-
-            else:
-
-                result = (
-                    f"Unknown tool requested: "
-                    f"{tool_name}"
-                )
-
-            if verbose:
-
-                print(
-                    f"[Tool Result] {result}"
-                )
-
-            # ------------------------------------------------
-            # SEND TOOL RESULT BACK TO GEMMA
-            # ------------------------------------------------
-
-            messages.append(
-                {
-                    "role": "tool",
-
-                    "tool_name": tool_name,
-
-                    "content": str(result)
-                }
-            )
-
-        # ----------------------------------------------------
-        # VERY IMPORTANT:
-        #
-        # DO NOT RETURN HERE.
-        #
-        # The loop goes back to Gemma so it can
-        # process the tool result and generate
-        # the final answer.
-        # ----------------------------------------------------
+        return response.text
 
     return (
-        "The agent reached the maximum number "
-        "of tool-calling turns."
+        "Gemini did not generate a response."
     )
 
 
@@ -617,7 +492,7 @@ def run_agent(
 
 def add_policy(
     title: str,
-    text: str
+    text: str,
 ):
     """
     Add a new policy to the knowledge base
@@ -627,21 +502,21 @@ def add_policy(
     POLICIES.append(
         {
             "title": title,
-            "text": text
+            "text": text,
         }
     )
 
     with open(
         POLICY_FILE,
         "w",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as file:
 
         json.dump(
             POLICIES,
             file,
             indent=2,
-            ensure_ascii=False
+            ensure_ascii=False,
         )
 
     build_embedding_index()
@@ -712,12 +587,12 @@ if __name__ == "__main__":
 
     print(
         "  Generation Model :",
-        GEN_MODEL
+        GEN_MODEL,
     )
 
     print(
         "  Embedding Model  :",
-        EMBED_MODEL
+        EMBED_MODEL,
     )
 
     print(
@@ -731,21 +606,21 @@ if __name__ == "__main__":
     print(
         "  Knowledge Base   :",
         len(POLICIES),
-        "policies"
+        "policies",
     )
 
     # --------------------------------------------------------
     # STEP 1
-    # Check Ollama
+    # Check Gemini
     # --------------------------------------------------------
 
     try:
 
-        check_ollama()
+        check_gemini()
 
     except Exception as error:
 
-        print("\n❌ Ollama setup error:")
+        print("\n❌ Gemini setup error:")
         print(error)
 
         raise SystemExit(1)
@@ -764,14 +639,6 @@ if __name__ == "__main__":
         print("\n❌ Embedding error:")
         print(error)
 
-        print(
-            "\nMake sure EmbeddingGemma is installed:"
-        )
-
-        print(
-            "ollama pull embeddinggemma"
-        )
-
         raise SystemExit(1)
 
     # --------------------------------------------------------
@@ -789,7 +656,7 @@ if __name__ == "__main__":
 
         "What are the library timings on Saturday?",
 
-        "What is the WiFi password for the boys hostel?"
+        "What is the WiFi password for the boys hostel?",
     ]
 
     # --------------------------------------------------------
@@ -804,7 +671,7 @@ if __name__ == "__main__":
 
     for number, question in enumerate(
         test_questions,
-        start=1
+        start=1,
     ):
 
         print("\n")
@@ -820,12 +687,12 @@ if __name__ == "__main__":
 
         answer = run_agent(
             question,
-            verbose=True
+            verbose=True,
         )
 
         print(
             "\nA:",
-            answer
+            answer,
         )
 
     # --------------------------------------------------------

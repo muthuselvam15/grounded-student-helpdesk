@@ -1,11 +1,13 @@
 import streamlit as st
 
 from helpdesk_agent import (
-    check_ollama,
+    check_gemini,
     build_embedding_index,
     run_agent,
     TICKETS,
     POLICIES,
+    GEN_MODEL,
+    EMBED_MODEL,
 )
 
 
@@ -27,24 +29,24 @@ st.set_page_config(
 st.title("🎓 Grounded Student Helpdesk")
 
 st.caption(
-    "Gemma 4 + Ollama + EmbeddingGemma + RAG + Agentic Tool Calling"
+    "Gemini + RAG + Embeddings + Agentic Tool Calling"
 )
 
 
 # ============================================================
-# INITIALIZE OLLAMA AND EMBEDDINGS
+# INITIALIZE GEMINI AND EMBEDDINGS
 # ============================================================
 
 if "initialized" not in st.session_state:
 
     with st.spinner(
-        "Connecting to Ollama and loading the policy knowledge base..."
+        "Connecting to Gemini and loading the policy knowledge base..."
     ):
 
         try:
 
-            # Check Ollama and required models
-            check_ollama()
+            # Check Gemini API
+            check_gemini()
 
             # Build policy embeddings
             build_embedding_index()
@@ -69,11 +71,11 @@ with st.sidebar:
     st.header("⚙️ System Information")
 
     st.write(
-        f"**Generation Model:** `{ 'gemma4' }`"
+        f"**Generation Model:** `{GEN_MODEL}`"
     )
 
     st.write(
-        f"**Embedding Model:** `{ 'embeddinggemma' }`"
+        f"**Embedding Model:** `{EMBED_MODEL}`"
     )
 
     st.write(
@@ -92,9 +94,9 @@ with st.sidebar:
 
     st.subheader("🔧 System Status")
 
-    st.success("Ollama Connected")
+    st.success("Gemini API Connected")
 
-    st.success("Models Available")
+    st.success("Gemini Models Available")
 
     st.success("Knowledge Base Ready")
 
@@ -110,7 +112,7 @@ policy knowledge base**.
 
 ### How it works
 
-**Student Question → Gemma 4 → Policy Search → EmbeddingGemma → 
+**Student Question → Gemini → Policy Search → Gemini Embeddings →
 Cosine Similarity → Grounded Answer**
 
 If no confident policy match is found:
@@ -142,7 +144,7 @@ example_questions = [
 
 selected_question = st.selectbox(
     "Select a sample question",
-    [""] + example_questions
+    [""] + example_questions,
 )
 
 
@@ -184,14 +186,14 @@ if st.button(
     else:
 
         with st.spinner(
-            "Gemma 4 is processing your question..."
+            "Gemini is processing your question..."
         ):
 
             try:
 
                 answer = run_agent(
                     question.strip(),
-                    verbose=False
+                    verbose=False,
                 )
 
                 st.subheader("💬 Helpdesk Response")
@@ -252,5 +254,5 @@ st.divider()
 
 st.caption(
     "🎓 Grounded Student Helpdesk | "
-    "Gemma 4 • Ollama • EmbeddingGemma • RAG • Agentic AI"
-)
+    "Gemini • Embeddings • RAG • Agentic AI"
+# )
