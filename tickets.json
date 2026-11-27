@@ -1,0 +1,16 @@
+[
+  {
+    "id": "c7fa9991-220f-4f0c-9f85-f4a0fe97e380",
+    "question": "Test question",
+    "reason": "Testing ticket persistence",
+    "created_at": "2026-11-26T17:38:38.662917+00:00",
+    "status": "open"
+  },
+  {
+    "id": "ead9b077-18d9-4bc5-ad36-b43fddeacb70",
+    "question": "What is the international exchange scholarship deadline?",
+    "reason": "The policy knowledge base does not contain information regarding the international exchange scholarship deadline.",
+    "created_at": "2026-11-26T17:46:59.509703+00:00",
+    "status": "open"
+  }
+]

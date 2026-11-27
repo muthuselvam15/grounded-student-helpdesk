@@ -203,10 +203,9 @@ with col1:
 with col2:
 
     st.metric(
-        "🤖 AI Model",
-        "Gemini 3.8",
-    )
-
+    "🤖 AI Model",
+    GEN_MODEL,
+)
 with col3:
 
     st.metric(
