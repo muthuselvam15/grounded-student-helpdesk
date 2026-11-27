@@ -1,28 +1,27 @@
-# Grounded Student Helpdesk — Agent Skill
+# Grounded Student Helpdesk — Agensi Skill
 
-A reusable instruction skill for building and maintaining a university helpdesk grounded in an approved policy knowledge base.
+A portable agent skill for answering university questions from institution-approved policy files and recording unanswered questions in a local JSON ticket store.
 
-## What this skill helps an agent do
+## Contents
+- `SKILL.md`: agent workflow and safety rules.
+- `scripts/policy_search.py`: standard-library policy search helper.
+- `scripts/ticket_store.py`: persistent local JSON ticket helper.
+- `references/architecture.md`: architecture and limitations.
+- `references/policy-format.md`: policy JSON format.
+- `data/policies.example.json`: intentionally empty starter file.
 
-- Design a RAG-based university helpdesk.
-- Structure and retrieve policy records.
-- Generate answers grounded in retrieved policy text.
-- Handle unanswered questions without hallucinating institutional rules.
-- Design a support-ticket workflow with explicit success/failure handling.
-- Review security, privacy, testing, and deployment considerations.
+## Requirements
+Python 3.9+. The bundled scripts use only the Python standard library. No Gemini API key, Streamlit server, or third-party package is required. The AI agent uses its own available model.
 
-## Package contents
+## Quick start
+1. Copy `data/policies.example.json` to `data/policies.json`.
+2. Add institution-approved policy records.
+3. Search:
+   `python scripts/policy_search.py --query "attendance requirement" --policies data/policies.json`
+4. After the user confirms escalation, create a ticket:
+   `python scripts/ticket_store.py create --question "Unknown deadline?" --reason "No approved policy match."`
+5. List tickets:
+   `python scripts/ticket_store.py list`
 
-- `SKILL.md` — agent instructions and acceptance criteria.
-- `references/architecture.md` — reference architecture and implementation caveats.
-- `references/policy-format.md` — suggested policy record format.
-
-## Important distinction
-
-This package contains agent instructions and reference documentation. It is not the hosted Streamlit application, does not include a running Python service, and does not itself provide a persistent ticket backend or API credentials.
-
-The original application remains in the repository root. Use its source as an implementation reference, and verify current dependencies and model availability before running it.
-
-## Safety and data handling
-
-Use only institution-approved policy documents. Do not commit secrets or real student records. Configure a persistent, access-controlled ticket backend before using the system for operational support.
+## Important
+Tickets are stored locally. They are not sent to university staff or an official ticketing system. The example policy file is empty; add only current, approved institutional content. Never package private student data or API credentials.
